@@ -99,24 +99,41 @@
       return rows;
     }
 
-    async function loadData() {
-      if (loading) return; loading = true;
-      const st = document.getElementById('st'); st.textContent = '⏳ 連線中...'; st.className = 'status w';
-      try {
-        const r = await fetch(SHEET_URL); if (!r.ok) throw new Error('HTTP ' + r.status);
-        const t = await r.text(); if (!t.trim()) throw new Error('空白');
-        const rows = parseCSV(t);
-        // 自動跳過標題列
-        if (rows[0] && /id|貨號|編號|名稱|name/i.test(rows[0].join(''))) rows.shift();
-        if (rows.length < 2) throw new Error('資料不足');
+    // ✅ 修正版：修正欄位索引 (A=ID, B=條碼, C=名稱, D=價格, E=分類)
+async function loadData() {
+  if (loading) return; loading = true;
+  const st = document.getElementById('st'); st.textContent = '⏳ 連線中...'; st.className = 'status w';
+  try {
+    const r = await fetch(SHEET_URL); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const t = await r.text(); if (!t.trim()) throw new Error('空白');
+    const rows = parseCSV(t);
+    
+    // 自動跳過標題列
+    if (rows[0] && /id|貨號|編號|名稱|name|code|條碼/i.test(rows[0].join(''))) rows.shift();
+    if (rows.length < 2) throw new Error('資料不足');
 
-        products = rows.filter(r => r[0]).map(r => ({
-          id: r[0],
-          name: r[1] || '未命名',
-          price: parseInt((r[2]||'0').replace(/,/g,'')) || 0,
-          cat: r[3] || 'cat-1'
-        }));
+    products = rows.filter(r => r[0]).map(r => ({
+      id: r[0],
+      name: r[2] || '未命名',      // 修正：讀取第 3 欄 (C欄：商品名稱)
+      price: parseInt((r[3]||'0').replace(/,/g,'')) || 0, // 修正：讀取第 4 欄 (D欄：售價)
+      cat: r[4] || 'cat-1'         // 修正：讀取第 5 欄 (E欄：分類)
+    }));
 
+    // 自動對應中文分類 → 系統代碼
+    products.forEach(p => {
+      if (/便當/.test(p.cat)) p.cat = 'cat-1';
+      else if (/飲料|飲品|OC/.test(p.cat)) p.cat = 'cat-2';
+      else if (/麵包|烘焙/.test(p.cat)) p.cat = 'cat-3';
+      else if (!/^cat-[1-3]$/.test(p.cat)) p.cat = 'cat-1'; // 預設歸類
+    });
+
+    st.textContent = `🌐 線上成功：${products.length} 項`; st.className = 'status ok';
+  } catch (e) {
+    console.warn('Sheet 連線失敗:', e.message);
+    st.textContent = '💻 離線模式：321 筆'; st.className = 'status err';
+    products = OFFLINE.map(p => ({id:p.id, name:p.name, price:p.price||0, cat:p.cat}));
+  } finally { loading = false; render(); }
+}
         // 自動對應中文分類
         products.forEach(p => {
           if (/便當/.test(p.cat)) p.cat = 'cat-1';
