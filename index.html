@@ -50,7 +50,7 @@
                 <h1 class="text-2xl font-bold text-slate-900">簡易訂貨系統</h1>
                 <p class="text-slate-500 text-sm mt-1 flex items-center gap-2">
                     <span id="data-status" class="inline-block w-2 h-2 rounded-full bg-green-500"></span>
-                    <span id="data-source-text">載入中...</span>
+                    <span id="data-source-text">系統就緒</span>
                 </p>
             </div>
             <div class="flex items-center gap-3">
@@ -149,7 +149,7 @@
                         <li>選擇「CSV (.csv)」格式，點擊「發佈」。</li>
                         <li>複製連結並貼在下方的網址欄。</li>
                     </ol>
-                    <p class="mt-2 text-xs opacity-80">表格需包含: id, code, name, categoryId (或類別ID), categoryName (或類別名稱)。</p>
+                    <p class="mt-2 text-xs opacity-80">表格需包含: id, code, name, categoryId (或類別ID), categoryName (或類別名稱), quantity (數量)。</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">Google Sheet CSV 網址</label>
@@ -313,6 +313,7 @@
             { id: "320", code: "367550", name: "OK熊鬆餅-經典", categoryId: "cat-3" }
         ];
 
+        // Cart stores { productId: quantity }
         let cart = {};
         let currentCategory = 'all';
         let searchQuery = '';
@@ -321,7 +322,7 @@
         let tempCategories = [];
         let orderHistory = JSON.parse(localStorage.getItem('orderHistory') || '[]');
         
-        // Default URL based on user request
+        // Use the user's specific URL as default
         const DEFAULT_SHEET_ID = '1PraWGjExwmu4jfNT3Z4fXuwJBx-kU3e-gJsUUBj4uG8';
         let sheetUrl = localStorage.getItem('googleSheetUrl') || `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/export?format=csv`;
 
@@ -486,7 +487,6 @@
         }
 
         // --- Helper: Smart Column Mapping ---
-        // Tries to find a column key that matches a target keyword (e.g. 'code', '貨號')
         function findColumnKey(keys, targetKeywords) {
             const normalizedTargets = targetKeywords.map(t => t.toLowerCase());
             return keys.find(k => {
@@ -526,6 +526,7 @@
                                 const idKey = findColumnKey(metaFields, ['id', 'ID']);
                                 const catIdKey = findColumnKey(metaFields, ['categoryId', '類別ID', '類別代碼']);
                                 const catNameKey = findColumnKey(metaFields, ['categoryName', '類別名稱', '分類']);
+                                const quantityKey = findColumnKey(metaFields, ['quantity', '數量', '訂購數']);
 
                                 const newProducts = [];
                                 const foundCategories = {};
@@ -547,14 +548,14 @@
                                     const id = idKey ? trimmedRow[idKey] : String(Date.now() + idx);
                                     const catId = catIdKey ? trimmedRow[catIdKey] : '';
                                     const catName = catNameKey ? trimmedRow[catNameKey] : '';
+                                    const qty = quantityKey ? parseInt(trimmedRow[quantityKey]) || 0 : 0;
 
                                     if (code || name !== '未命名商品') {
-                                        // If categoryId is missing but name exists, use name as ID or default
                                         let finalCatId = catId;
                                         if (!finalCatId && catName) {
-                                            finalCatId = `cat-${catName}`; // Create ID from name if missing
+                                            finalCatId = `cat-${catName}`;
                                         } else if (!finalCatId) {
-                                            finalCatId = 'cat-1'; // Fallback
+                                            finalCatId = 'cat-1';
                                         }
 
                                         newProducts.push({
@@ -563,6 +564,11 @@
                                             name: name,
                                             categoryId: finalCatId.trim()
                                         });
+
+                                        // Initialize cart with imported quantity
+                                        if (qty > 0) {
+                                            cart[id.trim()] = qty;
+                                        }
 
                                         // Extract category
                                         if (catId && catName && !foundCategories[catId.trim()]) {
@@ -573,7 +579,6 @@
                                             };
                                             colorIdx++;
                                         }
-                                        // If only name exists
                                         if (!catId && catName && !foundCategories[`cat-${catName}`]) {
                                              foundCategories[`cat-${catName}`] = {
                                                 id: `cat-${catName}`,
@@ -587,12 +592,10 @@
 
                                 products = newProducts;
 
-                                // Only update categories if we found them in the sheet
                                 if (Object.keys(foundCategories).length > 0) {
                                     categories = Object.values(foundCategories);
                                 }
 
-                                // Fallback if no categories found (e.g. only IDs provided)
                                 if (categories.length === 0 && newProducts.length > 0) {
                                     const uniqueCatIds = [...new Set(newProducts.map(p => p.categoryId))];
                                     categories = uniqueCatIds.map((id, i) => ({
@@ -672,6 +675,7 @@
                                 const idKey = findColumnKey(metaFields, ['id', 'ID']);
                                 const catIdKey = findColumnKey(metaFields, ['categoryId', '類別ID', '類別代碼']);
                                 const catNameKey = findColumnKey(metaFields, ['categoryName', '類別名稱', '分類']);
+                                const quantityKey = findColumnKey(metaFields, ['quantity', '數量', '訂購數']);
 
                                 const newProducts = [];
                                 const foundCategories = {};
@@ -687,11 +691,14 @@
                                     const id = idKey ? trimmedRow[idKey] : String(Date.now() + idx);
                                     const catId = catIdKey ? trimmedRow[catIdKey] : '';
                                     const catName = catNameKey ? trimmedRow[catNameKey] : '';
+                                    const qty = quantityKey ? parseInt(trimmedRow[quantityKey]) || 0 : 0;
 
                                     if (code || name !== '未命名') {
                                         let finalCatId = catId || `cat-${catName || 'unknown'}`;
                                         newProducts.push({ id: id.trim(), code: code, name: name, categoryId: finalCatId.trim() });
                                         
+                                        if (qty > 0) cart[id.trim()] = qty;
+
                                         if (catId && catName && !foundCategories[catId.trim()]) {
                                             foundCategories[catId.trim()] = { id: catId.trim(), name: catName, color: colors[colorIdx % colors.length] };
                                             colorIdx++;
@@ -926,9 +933,13 @@
             };
             orderHistory.unshift(order);
             localStorage.setItem('orderHistory', JSON.stringify(orderHistory));
-            cart = {};
-            renderProducts();
-            renderOrderDetails();
+            
+            // Clear cart after save (optional, but typical behavior)
+            // If you want to keep cart, comment out next line.
+            // cart = {}; 
+            // renderProducts();
+            // renderOrderDetails();
+            
             showToast(`訂單 ${order.id} 已保存`);
         }
 
@@ -963,7 +974,6 @@
             let url = els.sheetUrlInput.value.trim();
             if (!url) return showToast('請輸入網址');
             
-            // Auto-convert standard Google Sheet URL to CSV export URL
             if (url.includes('docs.google.com/spreadsheets/d/')) {
                 const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
                 if (match) {
@@ -1024,7 +1034,6 @@
             els.sheetUrlInput.value = sheetUrl;
             const success = await loadFromGoogleSheet(sheetUrl);
             if (!success) {
-                // Fallback to demo data if sheet fails
                 products = fallbackProducts;
                 renderCategories();
                 renderProducts();
