@@ -6,6 +6,7 @@
     <title>簡易訂貨系統</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-tc@5.0.16/400,500,600,700.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
         tailwind.config = {
@@ -30,6 +31,14 @@
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
         .order-history-item { transition: all 0.2s ease; }
         .order-history-item:hover { background-color: #F8FAFC; }
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid #ffffff;
+            width: 20px; height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-white text-slate-800 min-h-screen">
@@ -39,7 +48,16 @@
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-slate-900">簡易訂貨系統</h1>
-                <p class="text-slate-500 text-sm mt-1">選擇商品並調整數量，系統將自動彙整訂單明細</p>
+                <p class="text-slate-500 text-sm mt-1 flex items-center gap-2">
+                    <span id="data-status" class="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                    <span id="data-source-text">載入中...</span>
+                </p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="btn-settings" class="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    設定數據源
+                </button>
             </div>
         </div>
     </header>
@@ -51,7 +69,7 @@
             <!-- Left Column: Product List -->
             <div class="lg:col-span-2 space-y-6">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h2 class="text-lg font-bold text-slate-900">商品列表</h2>
+                    <h2 class="text-lg font-bold text-slate-900">商品列表 <span id="product-count" class="text-sm font-normal text-slate-400 ml-2"></span></h2>
                     <div class="flex gap-2">
                         <button id="btn-batch-import" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 shadow-sm transition">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
@@ -70,7 +88,11 @@
                 </div>
 
                 <div id="category-container" class="flex gap-2 overflow-x-auto pb-2"></div>
-                <div id="product-list" class="space-y-3 max-h-[600px] overflow-y-auto product-scroll pr-1"></div>
+                <div id="product-list" class="space-y-3 max-h-[600px] overflow-y-auto product-scroll pr-1">
+                    <div class="flex justify-center py-10">
+                        <div class="spinner border-slate-200 border-t-blue-600"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Column: Order Details -->
@@ -109,7 +131,39 @@
     </main>
 
     <!-- Hidden File Input -->
-    <input type="file" id="import-file" class="hidden" accept=".json">
+    <input type="file" id="import-file" class="hidden" accept=".json,.csv">
+
+    <!-- Settings Modal (Google Sheet URL) -->
+    <div id="modal-settings" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 fade-in relative">
+            <button id="close-settings" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <h3 class="text-lg font-bold mb-4">設定數據源</h3>
+            <div class="space-y-4">
+                <div class="bg-blue-50 p-4 rounded-lg text-sm text-blue-700">
+                    <p class="font-semibold mb-1">如何設定 Google Sheet？</p>
+                    <ol class="list-decimal list-inside space-y-1">
+                        <li>打開您的 Google Sheet 檔案。</li>
+                        <li>點擊「檔案」>「分享」>「發佈到網頁」。</li>
+                        <li>選擇「CSV (.csv)」格式，點擊「發佈」。</li>
+                        <li>複製連結並貼在下方的網址欄。</li>
+                    </ol>
+                    <p class="mt-2 text-xs opacity-80">表格需包含: id, code, name, categoryId (或類別ID), categoryName (或類別名稱)。</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Google Sheet CSV 網址</label>
+                    <input type="text" id="sheet-url" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://docs.google.com/...">
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button id="btn-cancel-settings" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-white transition">取消</button>
+                    <button id="btn-load-sheet" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition flex items-center gap-2">
+                        <span>載入數據</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Batch Import Modal -->
     <div id="modal-import" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
@@ -120,8 +174,8 @@
             <h3 class="text-lg font-bold mb-4">批量導入商品清單</h3>
             <div class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50 transition cursor-pointer" id="drop-zone">
                 <svg class="w-10 h-10 text-slate-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                <p class="text-sm text-slate-600 font-medium">點擊上傳或拖曳 JSON 檔案</p>
-                <p class="text-xs text-slate-400 mt-1">支援格式: products_data.json</p>
+                <p class="text-sm text-slate-600 font-medium">點擊上傳 JSON 或 CSV 檔案</p>
+                <p class="text-xs text-slate-400 mt-1">支援格式: products_data.json, Google Sheet CSV</p>
             </div>
             <div id="import-status" class="mt-4 text-sm hidden"></div>
         </div>
@@ -137,7 +191,6 @@
                 </button>
             </div>
             
-            <!-- Toolbar -->
             <div class="p-4 border-b border-slate-100 flex gap-3" id="manage-toolbar">
                 <input type="text" id="manage-search" placeholder="搜尋商品..." class="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
                 <button id="btn-add-product" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
@@ -150,7 +203,6 @@
                 </button>
             </div>
 
-            <!-- Product List View -->
             <div id="product-management-view" class="flex-1 overflow-y-auto p-0">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-slate-50 sticky top-0 z-10">
@@ -165,7 +217,6 @@
                 </table>
             </div>
 
-            <!-- Category List View -->
             <div id="category-management-view" class="flex-1 overflow-y-auto p-0 hidden">
                 <div class="p-4">
                     <table class="w-full text-left text-sm">
@@ -185,7 +236,6 @@
                 </div>
             </div>
 
-            <!-- Footer -->
             <div class="p-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
                 <button id="btn-cancel-manage" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-white transition">取消</button>
                 <button id="btn-save-manage" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition shadow-sm">保存更改</button>
@@ -211,8 +261,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">類別</label>
-                    <select id="new-category" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </select>
+                    <select id="new-category" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
                 </div>
                 <div class="flex justify-end gap-3 pt-2">
                     <button type="button" id="cancel-add-product" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-white transition">取消</button>
@@ -244,38 +293,25 @@
     <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-lg text-sm font-medium opacity-0 transition-opacity duration-300 pointer-events-none z-[70]">操作成功</div>
 
     <script>
-        // --- Full Product Data from JSON ---
+        // --- State ---
         let categories = [
             { id: "cat-1", name: "便當", color: "bg-blue-100 text-blue-800" },
             { id: "cat-2", name: "OC飲料", color: "bg-green-100 text-green-800" },
             { id: "cat-3", name: "麵包", color: "bg-orange-100 text-orange-800" }
         ];
 
-        let products = [
+        let products = [];
+        const fallbackProducts = [
             { id: "1", code: "313629", name: "A新及第豬肉熟", categoryId: "cat-1" },
             { id: "2", code: "313635", name: "A新及第小籠湯", categoryId: "cat-1" },
             { id: "3", code: "314820", name: "七里香-黃金", categoryId: "cat-1" },
-            { id: "4", code: "318234", name: "呷七碗油飯-週1", categoryId: "cat-1" },
-            { id: "5", code: "318237", name: "七碗炊粉-週1", categoryId: "cat-1" },
-            { id: "6", code: "317589", name: "沙茶牛肉炒麵", categoryId: "cat-1" },
-            { id: "7", code: "312299", name: "金品-黑胡椒", categoryId: "cat-1" },
-            { id: "8", code: "311067", name: "金品-青醬干", categoryId: "cat-1" },
-            { id: "9", code: "311178", name: "金品雙醬明太子", categoryId: "cat-1" },
-            { id: "10", code: "316316", name: "韓式歐巴炸雞拌", categoryId: "cat-1" },
             { id: "110", code: "347675", name: "酷椰與100%椰", categoryId: "cat-2" },
-            { id: "111", code: "350205", name: "愛之味高鈣豆漿", categoryId: "cat-2" },
-            { id: "112", code: "350106", name: "愛之味純濃燕麥", categoryId: "cat-2" },
             { id: "144", code: "219349", name: "林鳳營鮮乳全脂228", categoryId: "cat-2" },
             { id: "195", code: "346762", name: "純喫茶綠茶481ml", categoryId: "cat-2" },
             { id: "266", code: "130002", name: "糖蜜香紅豆麵包", categoryId: "cat-3" },
-            { id: "267", code: "133809", name: "皇英英沙其瑪", categoryId: "cat-3" },
-            { id: "269", code: "135183", name: "晨光奶油吐司", categoryId: "cat-3" },
             { id: "288", code: "133971", name: "瑞穗鮮乳土司", categoryId: "cat-3" },
-            { id: "320", code: "367550", name: "OK熊鬆餅-經典", categoryId: "cat-3" },
-            { id: "321", code: "367580", name: "OK熊鬆餅-草莓", categoryId: "cat-3" }
+            { id: "320", code: "367550", name: "OK熊鬆餅-經典", categoryId: "cat-3" }
         ];
-
-        // Note: In a real app, we'd load the full list. I'm keeping a subset for demo performance, but logic handles full list.
 
         let cart = {};
         let currentCategory = 'all';
@@ -284,6 +320,10 @@
         let tempProducts = [];
         let tempCategories = [];
         let orderHistory = JSON.parse(localStorage.getItem('orderHistory') || '[]');
+        
+        // Default URL based on user request
+        const DEFAULT_SHEET_ID = '1PraWGjExwmu4jfNT3Z4fXuwJBx-kU3e-gJsUUBj4uG8';
+        let sheetUrl = localStorage.getItem('googleSheetUrl') || `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/export?format=csv`;
 
         // --- DOM Elements ---
         const els = {
@@ -298,11 +338,17 @@
             btnExportExcel: document.getElementById('btn-export-excel'),
             btnSaveOrder: document.getElementById('btn-save-order'),
             btnOrderHistory: document.getElementById('btn-order-history'),
+            btnSettings: document.getElementById('btn-settings'),
             importFile: document.getElementById('import-file'),
             dropZone: document.getElementById('drop-zone'),
             modalImport: document.getElementById('modal-import'),
             closeImport: document.getElementById('close-import'),
             importStatus: document.getElementById('import-status'),
+            modalSettings: document.getElementById('modal-settings'),
+            closeSettings: document.getElementById('close-settings'),
+            btnCancelSettings: document.getElementById('btn-cancel-settings'),
+            btnLoadSheet: document.getElementById('btn-load-sheet'),
+            sheetUrlInput: document.getElementById('sheet-url'),
             modalManage: document.getElementById('modal-manage'),
             closeManage: document.getElementById('close-manage'),
             btnCancelManage: document.getElementById('btn-cancel-manage'),
@@ -320,15 +366,16 @@
             modalHistory: document.getElementById('modal-history'),
             closeHistory: document.getElementById('close-history'),
             historyList: document.getElementById('history-list'),
-            
-            // Category Management
             btnManageCategories: document.getElementById('btn-manage-categories'),
             productManagementView: document.getElementById('product-management-view'),
             categoryManagementView: document.getElementById('category-management-view'),
             modalTitle: document.getElementById('modal-title'),
             manageToolbar: document.getElementById('manage-toolbar'),
             categoryTableBody: document.getElementById('category-table-body'),
-            btnAddCategory: document.getElementById('btn-add-category')
+            btnAddCategory: document.getElementById('btn-add-category'),
+            productCount: document.getElementById('product-count'),
+            dataStatus: document.getElementById('data-status'),
+            dataSourceText: document.getElementById('data-source-text')
         };
 
         // --- Core Functions ---
@@ -362,6 +409,8 @@
             });
 
             els.productList.innerHTML = '';
+            els.productCount.textContent = `(${filtered.length})`;
+
             if (filtered.length === 0) {
                 els.productList.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">找不到符合的商品</div>`;
                 return;
@@ -436,7 +485,146 @@
             renderOrderDetails();
         }
 
-        // --- Batch Import Logic ---
+        // --- Helper: Smart Column Mapping ---
+        // Tries to find a column key that matches a target keyword (e.g. 'code', '貨號')
+        function findColumnKey(keys, targetKeywords) {
+            const normalizedTargets = targetKeywords.map(t => t.toLowerCase());
+            return keys.find(k => {
+                const nk = k.toLowerCase().trim();
+                return normalizedTargets.some(t => nk.includes(t));
+            });
+        }
+
+        // --- Google Sheet Loader ---
+        async function loadFromGoogleSheet(url) {
+            if (!url) return false;
+            
+            try {
+                els.dataStatus.className = 'inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse';
+                els.dataSourceText.textContent = '正在載入數據...';
+                showToast('正在從 Google Sheet 載入數據...');
+                
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('無法下載檔案 (請確認權限設為「任何擁有連結的人」可檢視)');
+                
+                const csvText = await response.text();
+                
+                return new Promise((resolve, reject) => {
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            try {
+                                const data = results.data;
+                                if (!data || data.length === 0) throw new Error('數據為空');
+
+                                const metaFields = results.meta.fields.map(f => f.trim());
+
+                                // Map columns robustly
+                                const codeKey = findColumnKey(metaFields, ['code', '貨號', '編號']);
+                                const nameKey = findColumnKey(metaFields, ['name', '商品名稱', '品名']);
+                                const idKey = findColumnKey(metaFields, ['id', 'ID']);
+                                const catIdKey = findColumnKey(metaFields, ['categoryId', '類別ID', '類別代碼']);
+                                const catNameKey = findColumnKey(metaFields, ['categoryName', '類別名稱', '分類']);
+
+                                const newProducts = [];
+                                const foundCategories = {};
+                                const colors = [
+                                    'bg-blue-100 text-blue-800', 'bg-green-100 text-green-800', 'bg-orange-100 text-orange-800', 
+                                    'bg-purple-100 text-purple-800', 'bg-pink-100 text-pink-800', 'bg-yellow-100 text-yellow-800'
+                                ];
+                                let colorIdx = 0;
+
+                                data.forEach((row, idx) => {
+                                    // Trim all values in row
+                                    const trimmedRow = {};
+                                    for (const key in row) {
+                                        trimmedRow[key.trim()] = (row[key] || '').trim();
+                                    }
+
+                                    const code = codeKey ? trimmedRow[codeKey] : '';
+                                    const name = nameKey ? trimmedRow[nameKey] : '未命名商品';
+                                    const id = idKey ? trimmedRow[idKey] : String(Date.now() + idx);
+                                    const catId = catIdKey ? trimmedRow[catIdKey] : '';
+                                    const catName = catNameKey ? trimmedRow[catNameKey] : '';
+
+                                    if (code || name !== '未命名商品') {
+                                        // If categoryId is missing but name exists, use name as ID or default
+                                        let finalCatId = catId;
+                                        if (!finalCatId && catName) {
+                                            finalCatId = `cat-${catName}`; // Create ID from name if missing
+                                        } else if (!finalCatId) {
+                                            finalCatId = 'cat-1'; // Fallback
+                                        }
+
+                                        newProducts.push({
+                                            id: id.trim(),
+                                            code: code,
+                                            name: name,
+                                            categoryId: finalCatId.trim()
+                                        });
+
+                                        // Extract category
+                                        if (catId && catName && !foundCategories[catId.trim()]) {
+                                            foundCategories[catId.trim()] = {
+                                                id: catId.trim(),
+                                                name: catName,
+                                                color: colors[colorIdx % colors.length]
+                                            };
+                                            colorIdx++;
+                                        }
+                                        // If only name exists
+                                        if (!catId && catName && !foundCategories[`cat-${catName}`]) {
+                                             foundCategories[`cat-${catName}`] = {
+                                                id: `cat-${catName}`,
+                                                name: catName,
+                                                color: colors[colorIdx % colors.length]
+                                            };
+                                            colorIdx++;
+                                        }
+                                    }
+                                });
+
+                                products = newProducts;
+
+                                // Only update categories if we found them in the sheet
+                                if (Object.keys(foundCategories).length > 0) {
+                                    categories = Object.values(foundCategories);
+                                }
+
+                                // Fallback if no categories found (e.g. only IDs provided)
+                                if (categories.length === 0 && newProducts.length > 0) {
+                                    const uniqueCatIds = [...new Set(newProducts.map(p => p.categoryId))];
+                                    categories = uniqueCatIds.map((id, i) => ({
+                                        id, name: id, color: colors[i % colors.length]
+                                    }));
+                                }
+
+                                localStorage.setItem('googleSheetUrl', url);
+                                els.sheetUrlInput.value = url;
+                                els.dataStatus.className = 'inline-block w-2 h-2 rounded-full bg-green-500';
+                                els.dataSourceText.textContent = `已載入 ${products.length} 項商品`;
+                                renderCategories();
+                                renderProducts();
+                                resolve(true);
+                            } catch (e) {
+                                console.error(e);
+                                reject(e);
+                            }
+                        },
+                        error: (err) => reject(err)
+                    });
+                });
+            } catch (error) {
+                console.error('Google Sheet Load Error:', error);
+                showToast('載入失敗，請檢查網址或權限');
+                els.dataStatus.className = 'inline-block w-2 h-2 rounded-full bg-red-500';
+                els.dataSourceText.textContent = '載入失敗';
+                return false;
+            }
+        }
+
+        // --- Batch Import Logic (Local File) ---
         function openImportModal() {
             els.modalImport.classList.remove('hidden');
             els.modalImport.classList.add('flex');
@@ -450,14 +638,22 @@
         function handleImportFile(file) {
             const reader = new FileReader();
             reader.onload = (e) => {
+                const content = e.target.result;
+                const ext = file.name.split('.').pop().toLowerCase();
+
                 try {
-                    const data = JSON.parse(e.target.result);
-                    if (data.categories && data.products) {
-                        categories = data.categories.map(c => ({
-                            id: c.id.trim(), name: c.name.trim(), color: c.color.trim()
+                    if (ext === 'json') {
+                        const data = JSON.parse(content);
+                        if (data.categories) categories = data.categories.map(c => ({
+                            id: (c.id || '').trim(),
+                            name: (c.name || '').trim(),
+                            color: (c.color || 'bg-gray-100 text-gray-800').trim()
                         }));
-                        products = data.products.map(p => ({
-                            id: p.id.trim(), code: p.code.trim(), name: p.name.trim(), categoryId: p.categoryId.trim()
+                        if (data.products) products = data.products.map(p => ({
+                            id: (p.id || '').trim(),
+                            code: (p.code || '').trim(),
+                            name: (p.name || '').trim(),
+                            categoryId: (p.categoryId || '').trim()
                         }));
                         cart = {};
                         renderCategories();
@@ -465,11 +661,57 @@
                         renderOrderDetails();
                         showToast(`成功導入 ${products.length} 項商品`);
                         closeImportModal();
+                    } else if (ext === 'csv') {
+                        Papa.parse(content, {
+                            header: true,
+                            complete: (results) => {
+                                const data = results.data;
+                                const metaFields = results.meta.fields.map(f => f.trim());
+                                const codeKey = findColumnKey(metaFields, ['code', '貨號', '編號']);
+                                const nameKey = findColumnKey(metaFields, ['name', '商品名稱', '品名']);
+                                const idKey = findColumnKey(metaFields, ['id', 'ID']);
+                                const catIdKey = findColumnKey(metaFields, ['categoryId', '類別ID', '類別代碼']);
+                                const catNameKey = findColumnKey(metaFields, ['categoryName', '類別名稱', '分類']);
+
+                                const newProducts = [];
+                                const foundCategories = {};
+                                const colors = ['bg-blue-100 text-blue-800', 'bg-green-100 text-green-800', 'bg-orange-100 text-orange-800'];
+                                let colorIdx = 0;
+
+                                data.forEach((row, idx) => {
+                                    const trimmedRow = {};
+                                    for (const key in row) trimmedRow[key.trim()] = (row[key] || '').trim();
+
+                                    const code = codeKey ? trimmedRow[codeKey] : '';
+                                    const name = nameKey ? trimmedRow[nameKey] : '未命名';
+                                    const id = idKey ? trimmedRow[idKey] : String(Date.now() + idx);
+                                    const catId = catIdKey ? trimmedRow[catIdKey] : '';
+                                    const catName = catNameKey ? trimmedRow[catNameKey] : '';
+
+                                    if (code || name !== '未命名') {
+                                        let finalCatId = catId || `cat-${catName || 'unknown'}`;
+                                        newProducts.push({ id: id.trim(), code: code, name: name, categoryId: finalCatId.trim() });
+                                        
+                                        if (catId && catName && !foundCategories[catId.trim()]) {
+                                            foundCategories[catId.trim()] = { id: catId.trim(), name: catName, color: colors[colorIdx % colors.length] };
+                                            colorIdx++;
+                                        }
+                                    }
+                                });
+                                products = newProducts;
+                                if (Object.keys(foundCategories).length > 0) categories = Object.values(foundCategories);
+                                renderCategories();
+                                renderProducts();
+                                renderOrderDetails();
+                                showToast(`成功導入 CSV ${products.length} 項商品`);
+                                closeImportModal();
+                            }
+                        });
                     } else {
-                        throw new Error('格式不符');
+                        throw new Error('不支援的檔案格式');
                     }
                 } catch (err) {
-                    els.importStatus.textContent = '匯入失敗：檔案格式錯誤或損毀';
+                    els.importStatus.textContent = '匯入失敗：檔案格式錯誤';
                     els.importStatus.classList.remove('hidden');
                     els.importStatus.className = 'mt-4 text-sm text-red-500';
                 }
@@ -478,7 +720,7 @@
         }
 
         // --- Manage Products Logic ---
-        let manageView = 'products'; // 'products' | 'categories'
+        let manageView = 'products'; 
 
         function openManageModal() {
             tempProducts = JSON.parse(JSON.stringify(products));
@@ -564,7 +806,6 @@
             }
         };
 
-        // --- Manage Categories Logic ---
         function renderManageCategories() {
             els.categoryTableBody.innerHTML = '';
             tempCategories.forEach((c, idx) => {
@@ -596,12 +837,9 @@
                 showToast('至少需要保留一個類別');
                 return;
             }
-            if (confirm('確定要刪除此類別嗎？關聯的商品將失去分類。')) {
+            if (confirm('確定要刪除此類別嗎？')) {
                 const deletedId = tempCategories[idx].id;
                 tempCategories.splice(idx, 1);
-                // Optional: Remove products with this category or move to first category
-                // For now, just leave them, they might show up as "Unknown" or similar if not handled.
-                // To be safe, let's reassign deleted products to the first category.
                 if (tempCategories.length > 0) {
                     const fallbackCat = tempCategories[0].id;
                     tempProducts.forEach(p => {
@@ -618,7 +856,6 @@
             renderManageCategories();
         });
 
-        // --- Add Product Logic ---
         function openAddProductModal() {
             els.newCategory.innerHTML = tempCategories.map(c => 
                 `<option value="${c.id}">${c.name}</option>`
@@ -646,7 +883,6 @@
             showToast('商品已新增');
         });
 
-        // --- Order History Logic ---
         function openHistoryModal() {
             renderHistoryList();
             els.modalHistory.classList.remove('hidden');
@@ -659,37 +895,14 @@
 
         function renderHistoryList() {
             if (orderHistory.length === 0) {
-                els.historyList.innerHTML = `
-                    <div class="text-center py-8 text-slate-400">
-                        <svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        <p>目前尚無訂單記錄</p>
-                    </div>
-                `;
+                els.historyList.innerHTML = `<div class="text-center py-8 text-slate-400"><svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg><p>目前尚無訂單記錄</p></div>`;
                 return;
             }
-
             els.historyList.innerHTML = orderHistory.map((order, index) => {
                 const date = new Date(order.date);
                 const dateStr = `${date.getFullYear()}/${String(date.getMonth()+1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
                 const items = order.items.map(item => `<div class="flex justify-between text-xs"><span>${item.name} × ${item.qty}</span><span class="text-slate-500">${item.code}</span></div>`).join('');
-                
-                return `
-                    <div class="order-history-item border border-slate-200 rounded-xl p-4 mb-3 bg-white">
-                        <div class="flex justify-between items-start mb-2">
-                            <div>
-                                <div class="font-medium text-sm text-slate-800">${order.id}</div>
-                                <div class="text-xs text-slate-400">${dateStr}</div>
-                            </div>
-                            <button onclick="deleteOrder(${index})" class="text-slate-400 hover:text-red-500 transition p-1">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                            </button>
-                        </div>
-                        <div class="space-y-1 pl-3 border-l-2 border-slate-100">
-                            ${items}
-                        </div>
-                        <div class="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-500 text-right">${order.items.length} 項商品 · 共 ${order.totalQty} 件</div>
-                    </div>
-                `;
+                return `<div class="order-history-item border border-slate-200 rounded-xl p-4 mb-3 bg-white"><div class="flex justify-between items-start mb-2"><div><div class="font-medium text-sm text-slate-800">${order.id}</div><div class="text-xs text-slate-400">${dateStr}</div></div><button onclick="deleteOrder(${index})" class="text-slate-400 hover:text-red-500 transition p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button></div><div class="space-y-1 pl-3 border-l-2 border-slate-100">${items}</div><div class="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-500 text-right">${order.items.length} 項商品 · 共 ${order.totalQty} 件</div></div>`;
             }).join('');
         }
 
@@ -702,81 +915,89 @@
             }
         };
 
-        // --- Save Order Logic ---
         function saveOrder() {
             const activeItems = products.filter(p => (cart[p.id] || 0) > 0);
             if (activeItems.length === 0) return showToast('購物車是空的');
-            
             const order = {
                 id: 'ORD-' + Date.now().toString(36).toUpperCase(),
                 date: new Date().toISOString(),
-                items: activeItems.map(p => ({
-                    id: p.id,
-                    code: p.code,
-                    name: p.name,
-                    qty: cart[p.id]
-                })),
+                items: activeItems.map(p => ({ id: p.id, code: p.code, name: p.name, qty: cart[p.id] })),
                 totalQty: activeItems.reduce((sum, p) => sum + cart[p.id], 0)
             };
-
             orderHistory.unshift(order);
             localStorage.setItem('orderHistory', JSON.stringify(orderHistory));
-            
             cart = {};
             renderProducts();
             renderOrderDetails();
             showToast(`訂單 ${order.id} 已保存`);
         }
 
-        // --- Excel Export Logic (Simplified) ---
         function exportToExcel() {
             const activeItems = products.filter(p => (cart[p.id] || 0) > 0);
             if (activeItems.length === 0) return showToast('購物車是空的');
-
-            // Only Code and Quantity
-            const data = activeItems.map(p => ({
-                '貨號': p.code,
-                '數量': cart[p.id]
-            }));
-
+            const data = activeItems.map(p => ({ '貨號': p.code, '數量': cart[p.id] }));
             const ws = XLSX.utils.json_to_sheet(data);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, '訂單明細');
-            
-            // Set column widths
-            ws['!cols'] = [
-                { wch: 12 },  // 貨號
-                { wch: 8 }    // 數量
-            ];
-
+            ws['!cols'] = [{ wch: 12 }, { wch: 8 }];
             XLSX.writeFile(wb, `訂單_${new Date().toISOString().slice(0,10)}.xlsx`);
             showToast('Excel 匯出成功');
         }
 
         // --- Event Listeners ---
+        els.btnSettings.addEventListener('click', () => {
+            els.sheetUrlInput.value = localStorage.getItem('googleSheetUrl') || '';
+            els.modalSettings.classList.remove('hidden');
+            els.modalSettings.classList.add('flex');
+        });
+        els.closeSettings.addEventListener('click', () => {
+            els.modalSettings.classList.add('hidden');
+            els.modalSettings.classList.remove('flex');
+        });
+        els.btnCancelSettings.addEventListener('click', () => {
+            els.modalSettings.classList.add('hidden');
+            els.modalSettings.classList.remove('flex');
+        });
+        
+        els.btnLoadSheet.addEventListener('click', async () => {
+            let url = els.sheetUrlInput.value.trim();
+            if (!url) return showToast('請輸入網址');
+            
+            // Auto-convert standard Google Sheet URL to CSV export URL
+            if (url.includes('docs.google.com/spreadsheets/d/')) {
+                const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+                if (match) {
+                    url = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`;
+                }
+            }
+            
+            const btn = els.btnLoadSheet;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<div class="spinner border-white/30 border-t-white w-4 h-4 mr-2"></div>載入中...';
+            btn.disabled = true;
+
+            const success = await loadFromGoogleSheet(url);
+            
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            if (success) {
+                els.modalSettings.classList.add('hidden');
+                els.modalSettings.classList.remove('flex');
+            }
+        });
+
         els.btnBatchImport.addEventListener('click', openImportModal);
         els.closeImport.addEventListener('click', closeImportModal);
         els.dropZone.addEventListener('click', () => els.importFile.click());
-        els.importFile.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) handleImportFile(e.target.files[0]);
-        });
+        els.importFile.addEventListener('change', (e) => { if (e.target.files.length > 0) handleImportFile(e.target.files[0]); });
         els.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); els.dropZone.classList.add('bg-blue-50', 'border-blue-300'); });
         els.dropZone.addEventListener('dragleave', () => els.dropZone.classList.remove('bg-blue-50', 'border-blue-300'));
-        els.dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            els.dropZone.classList.remove('bg-blue-50', 'border-blue-300');
-            if (e.dataTransfer.files.length > 0) handleImportFile(e.dataTransfer.files[0]);
-        });
+        els.dropZone.addEventListener('drop', (e) => { e.preventDefault(); els.dropZone.classList.remove('bg-blue-50', 'border-blue-300'); if (e.dataTransfer.files.length > 0) handleImportFile(e.dataTransfer.files[0]); });
 
         els.btnManageProducts.addEventListener('click', openManageModal);
         els.closeManage.addEventListener('click', closeManageModal);
         els.btnCancelManage.addEventListener('click', closeManageModal);
-        
-        els.manageSearch.addEventListener('input', (e) => {
-            manageSearchQuery = e.target.value;
-            if (manageView === 'products') renderManageTable();
-        });
-
+        els.manageSearch.addEventListener('input', (e) => { manageSearchQuery = e.target.value; if (manageView === 'products') renderManageTable(); });
         els.btnSaveManage.addEventListener('click', () => {
             products = tempProducts;
             categories = tempCategories;
@@ -790,24 +1011,27 @@
         els.btnAddProduct.addEventListener('click', openAddProductModal);
         els.closeAddProduct.addEventListener('click', closeAddProductModal);
         els.cancelAddProduct.addEventListener('click', closeAddProductModal);
-
         els.btnManageCategories.addEventListener('click', () => switchManageView('categories'));
 
         els.btnOrderHistory.addEventListener('click', openHistoryModal);
         els.closeHistory.addEventListener('click', closeHistoryModal);
-
         els.btnSaveOrder.addEventListener('click', saveOrder);
         els.btnExportExcel.addEventListener('click', exportToExcel);
-
-        els.searchInput.addEventListener('input', (e) => {
-            searchQuery = e.target.value;
-            renderProducts();
-        });
+        els.searchInput.addEventListener('input', (e) => { searchQuery = e.target.value; renderProducts(); });
 
         // --- Init ---
-        renderCategories();
-        renderProducts();
-        renderOrderDetails();
+        (async function init() {
+            els.sheetUrlInput.value = sheetUrl;
+            const success = await loadFromGoogleSheet(sheetUrl);
+            if (!success) {
+                // Fallback to demo data if sheet fails
+                products = fallbackProducts;
+                renderCategories();
+                renderProducts();
+                els.dataSourceText.textContent = '使用離線數據';
+            }
+            renderOrderDetails();
+        })();
     </script>
 </body>
 </html>
